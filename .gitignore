@@ -1,0 +1,7 @@
+*.log
+*.tmp
+*.db
+data/
+bin/
+dist/
+.DS_Store
