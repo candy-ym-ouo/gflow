@@ -14,13 +14,31 @@ type Memory struct {
 	nodes     map[string]*model.NodeInstance
 	tasks     map[string]*model.ApprovalTask
 	events    map[string][]model.ExecutionEvent
-	subs      map[int]chan model.ExecutionEvent
+	subs      map[int]*subscription
 	next      int64
 	sid       int
+	closed    bool
+}
+
+// subscription is the per-subscriber record owned by the store. The channel
+// is closed exactly once, regardless of whether the close is triggered by the
+// subscriber's cancel func, by Close during shutdown, or by both.
+type subscription struct {
+	ch     chan model.ExecutionEvent
+	closed bool
+}
+
+// close closes the subscription channel at most once. Caller must hold m.mu.
+func (s *subscription) close() {
+	if s.closed {
+		return
+	}
+	s.closed = true
+	close(s.ch)
 }
 
 func NewMemory() *Memory {
-	return &Memory{workflows: map[string]model.WorkflowDefinition{}, instances: map[string]*model.WorkflowInstance{}, nodes: map[string]*model.NodeInstance{}, tasks: map[string]*model.ApprovalTask{}, events: map[string][]model.ExecutionEvent{}, subs: map[int]chan model.ExecutionEvent{}}
+	return &Memory{workflows: map[string]model.WorkflowDefinition{}, instances: map[string]*model.WorkflowInstance{}, nodes: map[string]*model.NodeInstance{}, tasks: map[string]*model.ApprovalTask{}, events: map[string][]model.ExecutionEvent{}, subs: map[int]*subscription{}}
 }
 func (m *Memory) SaveWorkflow(d model.WorkflowDefinition) error {
 	m.mu.Lock()
@@ -244,9 +262,9 @@ func (m *Memory) AppendEvent(e model.ExecutionEvent) {
 		e.OccurredAt = time.Now()
 	}
 	m.events[e.InstanceID] = append(m.events[e.InstanceID], e)
-	for _, ch := range m.subs {
+	for _, sub := range m.subs {
 		select {
-		case ch <- e:
+		case sub.ch <- e:
 		default:
 		}
 	}
@@ -272,19 +290,39 @@ func (m *Memory) EventsAfter(id string, cursor int64, limit int) []model.Executi
 func (m *Memory) Subscribe() (<-chan model.ExecutionEvent, func()) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Once the store is closing, hand back an already-closed channel so the
+	// consumer observes a normal end-of-stream instead of subscribing into a
+	// store that is about to be torn down.
+	if m.closed {
+		ch := make(chan model.ExecutionEvent)
+		close(ch)
+		return ch, func() {}
+	}
 	m.sid++
 	id := m.sid
-	ch := make(chan model.ExecutionEvent, 32)
-	m.subs[id] = ch
-	return ch, func() { m.mu.Lock(); delete(m.subs, id); close(ch); m.mu.Unlock() }
+	sub := &subscription{ch: make(chan model.ExecutionEvent, 32)}
+	m.subs[id] = sub
+	// cancel is idempotent: it removes the subscription (if still present) and
+	// closes the channel at most once. Safe to call after Close has already
+	// reaped the subscription.
+	cancel := func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if s, ok := m.subs[id]; ok {
+			delete(m.subs, id)
+			s.close()
+		}
+	}
+	return sub.ch, cancel
 }
 
 func (m *Memory) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id, ch := range m.subs {
-		close(ch)
+	m.closed = true
+	for id, sub := range m.subs {
 		delete(m.subs, id)
+		sub.close()
 	}
 	return nil
 }

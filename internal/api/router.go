@@ -308,8 +308,13 @@ func (r *Router) stream(w http.ResponseWriter, q *http.Request) {
 	for {
 		select {
 		case event, ok := <-ch:
+			// A closed subscription channel means the store is shutting
+			// down (or the subscription was canceled). Treat it as a normal
+			// end of stream rather than an error.
 			if !ok {
-				panic("event subscription closed")
+				fmt.Fprint(w, "event: end\ndata: stream closed\n\n")
+				flusher.Flush()
+				return
 			}
 			data, _ := json.Marshal(event)
 			fmt.Fprintf(w, "id: %d\ndata: %s\n\n", event.Seq, data)
