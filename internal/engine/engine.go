@@ -80,7 +80,20 @@ func (e *Engine) Advance(ctx context.Context, i *model.WorkflowInstance) error {
 				e.s.UpdateInstance(i)
 				return nil
 			}
-			t, _ := e.ap.Create(i, *n)
+			t, err := e.ap.Create(i, *n)
+			if err != nil {
+				// The approval task could not be persisted (e.g. a duplicate
+				// task id or a store failure). Never leave the instance in a
+				// waiting state with no task to action: mark the node failed
+				// and surface the error so the caller can retry or dead-letter.
+				ni.LastError = err.Error()
+				ni.Status = "FAILED"
+				i.Status = model.Failed
+				i.ErrorInfo = fmt.Sprintf("approval task creation failed: %v", err)
+				e.s.SaveNode(ni)
+				e.s.UpdateInstance(i)
+				return err
+			}
 			ni.Status = "WAITING"
 			i.Status = model.WaitingApproval
 			e.s.SaveNode(ni)

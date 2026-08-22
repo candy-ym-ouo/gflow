@@ -15,7 +15,7 @@ func (m *Manager) Create(i *model.WorkflowInstance, n model.Node) (*model.Approv
 	if x, ok := n.Config["assignee"].(string); ok {
 		a = []string{x}
 	}
-	t := &model.ApprovalTask{ID: fmt.Sprintf("task-%s", n.ID), InstanceID: i.ID, NodeID: n.ID, Mode: fmt.Sprint(n.Config["mode"]), Status: "PENDING", Assignees: a, PassRatio: 1}
+	t := &model.ApprovalTask{ID: fmt.Sprintf("task-%s-%s", i.ID, n.ID), InstanceID: i.ID, NodeID: n.ID, Mode: fmt.Sprint(n.Config["mode"]), Status: "PENDING", Assignees: a, PassRatio: 1}
 	if t.Mode == "" {
 		t.Mode = "single"
 	}
