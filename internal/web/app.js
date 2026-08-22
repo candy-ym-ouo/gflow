@@ -1,0 +1,1 @@
+fetch('/api/v1/healthz').then(function(r){return r.json()}).then(function(x){document.querySelector('#health').textContent=JSON.stringify(x,null,2)}).catch(function(){document.querySelector('#health').textContent='offline'});

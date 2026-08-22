@@ -1,0 +1,1 @@
+{"id":"simple","name":"Simple flow","version":1,"nodes":[{"id":"start","name":"Start","type":"start"},{"id":"notify","name":"Notify","type":"action","config":{"kind":"notify"}},{"id":"end","name":"End","type":"end"}],"edges":[{"from":"start","to":"notify"},{"from":"notify","to":"end"}]}
