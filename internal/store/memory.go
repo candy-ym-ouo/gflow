@@ -32,7 +32,7 @@ func (m *Memory) SaveWorkflow(d model.WorkflowDefinition) error {
 		d.CreatedAt = time.Now()
 	}
 	d.UpdatedAt = time.Now()
-	m.workflows[d.ID] = d
+	m.workflows[d.ID] = cloneWorkflow(d)
 	return nil
 }
 func (m *Memory) GetWorkflow(id string) (model.WorkflowDefinition, error) {
@@ -42,15 +42,14 @@ func (m *Memory) GetWorkflow(id string) (model.WorkflowDefinition, error) {
 	if !ok {
 		return d, ErrNotFound
 	}
-	d.Nodes = append([]model.Node(nil), d.Nodes...)
-	return d, nil
+	return cloneWorkflow(d), nil
 }
 func (m *Memory) ListWorkflows() []model.WorkflowDefinition {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	r := []model.WorkflowDefinition{}
+	r := make([]model.WorkflowDefinition, 0, len(m.workflows))
 	for _, d := range m.workflows {
-		r = append(r, d)
+		r = append(r, cloneWorkflow(d))
 	}
 	return r
 }
@@ -322,4 +321,31 @@ func cloneMap(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+func cloneMapString(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+func cloneWorkflow(d model.WorkflowDefinition) model.WorkflowDefinition {
+	c := d
+	c.Nodes = make([]model.Node, len(d.Nodes))
+	for i := range d.Nodes {
+		n := d.Nodes[i]
+		n.Config = cloneMap(n.Config)
+		n.Input = cloneMapString(n.Input)
+		n.Output = cloneMapString(n.Output)
+		if n.Retry != nil {
+			r := *n.Retry
+			n.Retry = &r
+		}
+		c.Nodes[i] = n
+	}
+	c.Edges = append([]model.Edge(nil), d.Edges...)
+	return c
 }
