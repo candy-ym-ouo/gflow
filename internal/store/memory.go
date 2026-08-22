@@ -149,8 +149,8 @@ func (m *Memory) ListRunnable(now time.Time) []*model.WorkflowInstance {
 	r := []*model.WorkflowInstance{}
 	for _, i := range m.instances {
 		if i.Status == model.Pending || i.Status == model.Running || (i.Status == model.WaitingRetry && i.NextRetryAt != nil && !i.NextRetryAt.After(now)) {
-			c := *i
-			r = append(r, &c)
+			c := cloneInstance(i)
+			r = append(r, c)
 		}
 	}
 	return r
@@ -282,7 +282,7 @@ func (m *Memory) Subscribe() (<-chan model.ExecutionEvent, func()) {
 func cloneInstance(i *model.WorkflowInstance) *model.WorkflowInstance {
 	c := *i
 	c.Context = cloneMap(i.Context)
-	c.CurrentNodeIDs = i.CurrentNodeIDs
+	c.CurrentNodeIDs = append([]string(nil), i.CurrentNodeIDs...)
 	if i.NextRetryAt != nil {
 		value := *i.NextRetryAt
 		c.NextRetryAt = &value
