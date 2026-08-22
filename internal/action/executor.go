@@ -82,26 +82,39 @@ func (e *Executor) runHTTPBatch(ctx context.Context, n model.Node, input map[str
 	urls, _ := n.Config["urls"].([]any)
 	results := make([]any, 0, len(urls))
 	for _, raw := range urls {
-		body, err := json.Marshal(input)
+		result, err := e.doBatchRequest(ctx, fmt.Sprint(raw), input)
 		if err != nil {
 			return nil, err
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprint(raw), bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		response, err := e.client.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		defer response.Body.Close()
-		data, err := io.ReadAll(response.Body)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, map[string]any{"status": response.StatusCode, "body": string(data)})
+		results = append(results, result)
 	}
 	return map[string]any{"responses": results}, nil
+}
+
+// doBatchRequest performs a single batch HTTP request and closes the response
+// body as soon as it has been read (or on any error). Closing per request —
+// rather than deferring to the end of the whole batch — keeps the number of
+// open connections and file descriptors bounded, so large batches don't run
+// into "too many open files" and mid-batch failures don't leak responses.
+func (e *Executor) doBatchRequest(ctx context.Context, url string, input map[string]any) (map[string]any, error) {
+	body, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	response, err := e.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"status": response.StatusCode, "body": string(data)}, nil
 }
 
 func (e *Executor) runHTTP(ctx context.Context, n model.Node, input map[string]any) (map[string]any, error) {
